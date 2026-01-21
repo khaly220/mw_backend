@@ -1,0 +1,190 @@
+// ===================
+// GENERATOR & DATASOURCE
+// ===================
+generator client {
+  provider = "prisma-client-js"
+}
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+
+// ===================
+// ENUMS
+// ===================
+enum Role {
+  STUDENT
+  TEACHER
+  ADMIN
+}
+
+enum AnnouncementTargetType {
+  SCHOOL
+  CLASS
+  COURSE
+  USER
+}
+
+enum QuestionType {
+  MCQ
+  TRUE_FALSE
+  SHORT_ANSWER
+}
+
+// ===================
+// USER
+// ===================
+model User {
+  id        String   @id @default(uuid())
+  name      String
+  email     String   @unique
+  password  String
+  role      Role
+
+  classes       ClassMember[]
+  courses       Course[] @relation("TeacherCourses")
+  quizAttempts  QuizAttempt[]
+  announcements Announcement[] @relation("UserAnnouncements")
+  aiInteractions AIInteraction[]
+
+  createdAt DateTime @default(now())
+}
+
+// ===================
+// CLASS
+// ===================
+model Class {
+  id          String @id @default(uuid())
+  name        String
+  level       String   // e.g., S1, S2
+  members     ClassMember[]
+  courses     Course[]
+  announcements Announcement[]
+
+  createdAt DateTime @default(now())
+}
+
+model ClassMember {
+  id       String @id @default(uuid())
+  userId   String
+  classId  String
+
+  user  User  @relation(fields: [userId], references: [id])
+  class Class @relation(fields: [classId], references: [id])
+
+  @@unique([userId, classId])
+}
+
+// ===================
+// COURSE & LESSON
+// ===================
+model Course {
+  id          String @id @default(uuid())
+  title       String
+  description String
+  classId     String
+  teacherId   String
+
+  class       Class @relation(fields: [classId], references: [id])
+  teacher     User  @relation("TeacherCourses", fields: [teacherId], references: [id])
+
+  lessons     Lesson[]
+  announcements Announcement[]
+
+  createdAt DateTime @default(now())
+}
+
+model Lesson {
+  id          String @id @default(uuid())
+  title       String
+  content     String
+  videoUrl    String?
+  courseId    String
+
+  course Course @relation(fields: [courseId], references: [id])
+  quiz   Quiz?
+
+  aiContext String? // for AI chat & video tutor
+
+  aiInteractions AIInteraction[]
+
+  createdAt DateTime @default(now())
+}
+
+// ===================
+// QUIZ SYSTEM
+// ===================
+model Quiz {
+  id        String @id @default(uuid())
+  lessonId  String @unique
+
+  lesson    Lesson @relation(fields: [lessonId], references: [id])
+  questions Question[]
+
+  attempts  QuizAttempt[]  // <-- Add this line
+
+  createdAt DateTime @default(now())
+}
+
+model Question {
+  id       String       @id @default(uuid())
+  quizId   String
+  type     QuestionType
+  question String
+  options  Json?
+  answer   String
+
+  quiz Quiz @relation(fields: [quizId], references: [id])
+}
+
+model QuizAttempt {
+  id       String @id @default(uuid())
+  userId   String
+  quizId   String
+  score    Int
+  answers  Json
+
+  user User @relation(fields: [userId], references: [id])
+  quiz Quiz @relation(fields: [quizId], references: [id])
+
+  createdAt DateTime @default(now())
+
+  @@unique([userId, quizId])
+}
+
+// ===================
+// ANNOUNCEMENTS
+// ===================
+model Announcement {
+  id         String @id @default(uuid())
+  title      String
+  content    String
+  targetType AnnouncementTargetType
+
+  classId    String?
+  courseId   String?
+  userId     String?
+
+  class   Class?  @relation(fields: [classId], references: [id])
+  course  Course? @relation(fields: [courseId], references: [id])
+  user    User?   @relation("UserAnnouncements", fields: [userId], references: [id])
+
+  createdAt DateTime @default(now())
+}
+
+// ===================
+// AI INTERACTIONS
+// ===================
+model AIInteraction {
+  id        String @id @default(uuid())
+  userId    String
+  lessonId  String?
+  type      String // CHAT or VIDEO
+  messages  Json
+
+  user   User   @relation(fields: [userId], references: [id])
+  lesson Lesson? @relation(fields: [lessonId], references: [id])
+
+  createdAt DateTime @default(now())
+}
