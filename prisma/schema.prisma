@@ -4,11 +4,11 @@
 generator client {
   provider = "prisma-client-js"
 }
+
 datasource db {
   provider = "postgresql"
   url      = env("DATABASE_URL")
 }
-
 
 // ===================
 // ENUMS
@@ -17,6 +17,12 @@ enum Role {
   STUDENT
   TEACHER
   ADMIN
+}
+
+enum RequestStatus {
+  PENDING
+  APPROVED
+  REJECTED
 }
 
 enum AnnouncementTargetType {
@@ -36,39 +42,71 @@ enum QuestionType {
 // USER
 // ===================
 model User {
-  id        String   @id @default(uuid())
-  name      String
-  email     String   @unique
-  password  String
-  role      Role
+  id       String @id @default(uuid())
+  name     String
+  email    String @unique
+  password String
+  role     Role
 
-  classes       ClassMember[]
-  courses       Course[] @relation("TeacherCourses")
-  quizAttempts  QuizAttempt[]
-  announcements Announcement[] @relation("UserAnnouncements")
+  classId String?
+  class   Class?  @relation(fields: [classId], references: [id])
+
+  studentRequests ClassAssignmentRequest[] @relation("StudentRequests")
+  teacherRequests ClassAssignmentRequest[] @relation("TeacherRequests")
+
+  courses        Course[]        @relation("TeacherCourses")
+  quizAttempts   QuizAttempt[]
+  announcements  Announcement[]  @relation("UserAnnouncements")
   aiInteractions AIInteraction[]
 
-  createdAt DateTime @default(now())
+  createdAt   DateTime      @default(now())
+  ClassMember ClassMember[]
+  Quiz        Quiz[]
 }
 
 // ===================
 // CLASS
 // ===================
 model Class {
-  id          String @id @default(uuid())
-  name        String
-  level       String   // e.g., S1, S2
-  members     ClassMember[]
-  courses     Course[]
+  id    String @id @default(uuid())
+  name  String
+  level String
+  group String
+
+  students      User[]
+  members       ClassMember[]
+  courses       Course[]
+  classRequests ClassAssignmentRequest[]
+
   announcements Announcement[]
 
-  createdAt DateTime @default(now())
+  createdAt         DateTime            @default(now())
+  AnnouncementClass AnnouncementClass[]
+  QuizClass         QuizClass[]
+
+  @@unique([level, group])
+}
+
+// ===================
+// CLASS ASSIGNMENTS
+// ===================
+model ClassAssignmentRequest {
+  id        String        @id @default(uuid())
+  studentId String
+  classId   String
+  teacherId String
+  status    RequestStatus @default(PENDING)
+  createdAt DateTime      @default(now())
+
+  student User  @relation("StudentRequests", fields: [studentId], references: [id])
+  teacher User  @relation("TeacherRequests", fields: [teacherId], references: [id])
+  class   Class @relation(fields: [classId], references: [id])
 }
 
 model ClassMember {
-  id       String @id @default(uuid())
-  userId   String
-  classId  String
+  id      String @id @default(uuid())
+  userId  String
+  classId String
 
   user  User  @relation(fields: [userId], references: [id])
   class Class @relation(fields: [classId], references: [id])
@@ -77,7 +115,7 @@ model ClassMember {
 }
 
 // ===================
-// COURSE & LESSON
+// COURSES & LESSONS
 // ===================
 model Course {
   id          String @id @default(uuid())
@@ -86,45 +124,55 @@ model Course {
   classId     String
   teacherId   String
 
-  class       Class @relation(fields: [classId], references: [id])
-  teacher     User  @relation("TeacherCourses", fields: [teacherId], references: [id])
+  class   Class @relation(fields: [classId], references: [id])
+  teacher User  @relation("TeacherCourses", fields: [teacherId], references: [id])
 
-  lessons     Lesson[]
+  lessons       Lesson[]
   announcements Announcement[]
 
   createdAt DateTime @default(now())
 }
 
 model Lesson {
-  id          String @id @default(uuid())
-  title       String
-  content     String
-  videoUrl    String?
-  courseId    String
+  id       String  @id @default(uuid())
+  title    String
+  content  String
+  videoUrl String?
+  courseId String
 
-  course Course @relation(fields: [courseId], references: [id])
-  quiz   Quiz?
-
-  aiContext String? // for AI chat & video tutor
-
+  course         Course          @relation(fields: [courseId], references: [id])
+  quiz           Quiz?           @relation(fields: [quizId], references: [id])
+  aiContext      String? // AI chat or video tutor
   aiInteractions AIInteraction[]
 
   createdAt DateTime @default(now())
+  quizId    String?
 }
 
-// ===================
-// QUIZ SYSTEM
-// ===================
 model Quiz {
-  id        String @id @default(uuid())
-  lessonId  String @unique
+  id          String   @id @default(uuid())
+  title       String
+  description String?
+  teacherId   String
+  createdAt   DateTime @default(now())
 
-  lesson    Lesson @relation(fields: [lessonId], references: [id])
+  teacher   User        @relation(fields: [teacherId], references: [id])
+  classes   QuizClass[] // relation to assigned classes
   questions Question[]
 
-  attempts  QuizAttempt[]  // <-- Add this line
+  attempts QuizAttempt[]
+  Lesson   Lesson[]
+}
 
-  createdAt DateTime @default(now())
+model QuizClass {
+  id      String @id @default(uuid())
+  quizId  String
+  classId String
+
+  quiz  Quiz  @relation(fields: [quizId], references: [id])
+  class Class @relation(fields: [classId], references: [id])
+
+  @@unique([quizId, classId])
 }
 
 model Question {
@@ -139,11 +187,11 @@ model Question {
 }
 
 model QuizAttempt {
-  id       String @id @default(uuid())
-  userId   String
-  quizId   String
-  score    Int
-  answers  Json
+  id      String @id @default(uuid())
+  userId  String
+  quizId  String
+  score   Int
+  answers Json
 
   user User @relation(fields: [userId], references: [id])
   quiz Quiz @relation(fields: [quizId], references: [id])
@@ -154,37 +202,46 @@ model QuizAttempt {
 }
 
 // ===================
-// ANNOUNCEMENTS
+// AI INTERACTIONS
 // ===================
-model Announcement {
-  id         String @id @default(uuid())
-  title      String
-  content    String
-  targetType AnnouncementTargetType
+model AIInteraction {
+  id       String  @id @default(uuid())
+  userId   String
+  lessonId String?
+  type     String // CHAT or VIDEO
+  messages Json
 
-  classId    String?
-  courseId   String?
-  userId     String?
-
-  class   Class?  @relation(fields: [classId], references: [id])
-  course  Course? @relation(fields: [courseId], references: [id])
-  user    User?   @relation("UserAnnouncements", fields: [userId], references: [id])
+  user   User    @relation(fields: [userId], references: [id])
+  lesson Lesson? @relation(fields: [lessonId], references: [id])
 
   createdAt DateTime @default(now())
 }
 
-// ===================
-// AI INTERACTIONS
-// ===================
-model AIInteraction {
-  id        String @id @default(uuid())
-  userId    String
-  lessonId  String?
-  type      String // CHAT or VIDEO
-  messages  Json
+model Announcement {
+  id         String                 @id @default(uuid())
+  title      String
+  content    String
+  targetType AnnouncementTargetType
 
-  user   User   @relation(fields: [userId], references: [id])
-  lesson Lesson? @relation(fields: [lessonId], references: [id])
+  classId  String?
+  courseId String?
+  userId   String?
 
-  createdAt DateTime @default(now())
+  class  Class?  @relation(fields: [classId], references: [id])
+  course Course? @relation(fields: [courseId], references: [id])
+  user   User?   @relation("UserAnnouncements", fields: [userId], references: [id])
+
+  createdAt         DateTime            @default(now())
+  AnnouncementClass AnnouncementClass[]
+}
+
+model AnnouncementClass {
+  id             String @id @default(uuid())
+  announcementId String
+  classId        String
+
+  announcement Announcement @relation(fields: [announcementId], references: [id])
+  class        Class        @relation(fields: [classId], references: [id])
+
+  @@unique([announcementId, classId])
 }

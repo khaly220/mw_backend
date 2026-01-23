@@ -12,7 +12,7 @@ exports.authenticate = (req, res, next) => {
   try {
     const decoded = jwt.verify(token, process.env.JWT_SECRET);
 
-    // attach user info to request
+    
     req.user = {
       id: decoded.id,
       role: decoded.role

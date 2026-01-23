@@ -1,10 +1,8 @@
-// src/controllers/auth.controller.js
 const bcrypt = require("bcrypt");
 const jwt = require("jsonwebtoken");
 const { PrismaClient } = require("@prisma/client");
 const prisma = new PrismaClient();
 
-// Helper function to log request body
 const logBody = (req) => console.log("Request body:", req.body);
 
 exports.register = async (req, res) => {
@@ -21,16 +19,15 @@ exports.register = async (req, res) => {
       return res.status(400).json({ error: "All fields (name, email, password, role) are required" });
     }
 
-    // Check if user exists
+   
     const existingUser = await prisma.user.findUnique({ where: { email } });
     if (existingUser) {
       return res.status(400).json({ error: "Email already registered" });
     }
 
-    // Hash password
     const hashedPassword = await bcrypt.hash(password, 10);
 
-    // Create user
+    
     const user = await prisma.user.create({
       data: {
         name,
