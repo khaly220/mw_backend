@@ -28,8 +28,7 @@ const io = new Server(server, {
   cors: { 
     origin: [
       "https://m-frontend-7wyg-seven.vercel.app", // Your live frontend
-      "http://localhost:5173",                   // Your local dev environment
-      "http://localhost:3000"
+      
     ],
     methods: ["GET", "POST"],
     credentials: true
@@ -168,9 +167,8 @@ socket.on("join-live-session", async ({ sessionId, studentId, classId }) => {
 
 app.use(cors({
   origin: [
-    "https://m-frontend-7wyg-seven.vercel.app", // Your live frontend
-    "http://localhost:5173",                   // Your local dev environment
-    "http://localhost:3000"
+    "https://m-frontend-7wyg-seven.vercel.app",  // Your live frontend
+    
   ],
   credentials: true,
   methods: ["GET", "POST", "PUT", "DELETE"]
