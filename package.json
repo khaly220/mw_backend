@@ -2,12 +2,13 @@
   "name": "backend",
   "version": "1.0.0",
   "type": "commonjs",
-  "main": "index.js",
+  "main": "src/server.js",
   "scripts": {
-    "test": "echo \"Error: no test specified\" && exit 1",
-    "start": "node src/server.js",
     "dev": "nodemon src/server.js",
-    "seed": "npx prisma db seed"
+    "seed": "npx prisma db seed",
+    "postinstall": "prisma generate",
+    "build": "prisma generate",
+    "start": "node src/server.js"
   },
   "keywords": [],
   "author": "",
