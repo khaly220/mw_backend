@@ -26,7 +26,11 @@ const server = http.createServer(app);
 // 2. INITIALIZE SOCKET.IO
 const io = new Server(server, {
   cors: { 
-    origin: "http://localhost:3000",
+    origin: [
+      "https://m-frontend-7wyg-seven.vercel.app", // Your live frontend
+      "http://localhost:5173",                   // Your local dev environment
+      "http://localhost:3000"
+    ],
     methods: ["GET", "POST"],
     credentials: true
   },
@@ -161,10 +165,15 @@ socket.on("join-live-session", async ({ sessionId, studentId, classId }) => {
 });
 
 
-// 4. MIDDLEWARE
+
 app.use(cors({
-  origin: "http://localhost:3000",
-  credentials: true
+  origin: [
+    "https://m-frontend-7wyg-seven.vercel.app", // Your live frontend
+    "http://localhost:5173",                   // Your local dev environment
+    "http://localhost:3000"
+  ],
+  credentials: true,
+  methods: ["GET", "POST", "PUT", "DELETE"]
 }));
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
