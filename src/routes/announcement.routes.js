@@ -1,33 +1,22 @@
-const router = require("express").Router();
-const { authenticate } = require("../middleware/auth.middleware");
-const { checkRole } = require("../middleware/role.middleware");
-const controller = require("../controllers/announcement.controller");
+// src/routes/announcement.routes.js
+const express = require('express');
+const router = express.Router();
+const {
+  getAnnouncements,
+  createAnnouncement,
+  updateAnnouncement,
+  deleteAnnouncement,
+} = require('../controllers/announcement.controller');
 
-router.post(
-  "/",
-  authenticate,
-  checkRole(["ADMIN", "TEACHER"]),
-  controller.createAnnouncement
-);
+const { authenticate } = require('../middleware/auth.middleware');
 
-router.get(
-  "/",
-  authenticate,
-  controller.getAnnouncements
-);
+// Apply authentication
+router.use(authenticate);
 
-router.put(
-  "/:id",
-  authenticate,
-  checkRole(["ADMIN", "TEACHER"]),
-  controller.updateAnnouncement
-);
-
-router.delete(
-  "/:id",
-  authenticate,
-  checkRole(["ADMIN", "TEACHER"]),
-  controller.deleteAnnouncement
-);
+// CRUD routes
+router.get('/', getAnnouncements);
+router.post('/', createAnnouncement);
+router.put('/:id', updateAnnouncement);
+router.delete('/:id', deleteAnnouncement);
 
 module.exports = router;

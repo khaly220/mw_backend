@@ -1,0 +1,8 @@
+-- AlterTable
+ALTER TABLE "Question" ADD COLUMN     "weight" INTEGER NOT NULL DEFAULT 5;
+
+-- AlterTable
+ALTER TABLE "Quiz" ADD COLUMN     "duration" INTEGER NOT NULL DEFAULT 30,
+ADD COLUMN     "instruction" TEXT,
+ADD COLUMN     "negativeMarking" DOUBLE PRECISION NOT NULL DEFAULT 0,
+ADD COLUMN     "passMark" INTEGER NOT NULL DEFAULT 50;

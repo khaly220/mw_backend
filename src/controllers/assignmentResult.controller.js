@@ -1,27 +1,27 @@
 const { PrismaClient } = require("@prisma/client");
 const prisma = new PrismaClient();
 
-exports.getQuizResults = async (req, res) => {
+exports.getassignmentResults = async (req, res) => {
   try {
-    const { quizId } = req.params;
+    const { assignmentId } = req.params;
     const { user } = req;
 
-    const quiz = await prisma.quiz.findUnique({
-      where: { id: quizId },
+    const assignment = await prisma.assignment.findUnique({
+      where: { id: assignmentId },
       include: { teacher: true },
     });
 
-    if (!quiz) {
-      return res.status(404).json({ error: "Quiz not found" });
+    if (!assignment) {
+      return res.status(404).json({ error: "assignment not found" });
     }
 
-    // Teacher can only view own quiz
-    if (user.role === "TEACHER" && quiz.teacherId !== user.id) {
+    // Teacher can only view own assignment
+    if (user.role === "TEACHER" && assignment.teacherId !== user.id) {
       return res.status(403).json({ error: "Unauthorized access" });
     }
 
-    const results = await prisma.quizAttempt.findMany({
-      where: { quizId },
+    const results = await prisma.assignmentAttempt.findMany({
+      where: { assignmentId },
       include: {
         user: {
           select: {
@@ -35,7 +35,7 @@ exports.getQuizResults = async (req, res) => {
     });
 
     res.json({
-      quiz: quiz.title,
+      assignment: assignment.title,
       totalAttempts: results.length,
       results,
     });
@@ -45,24 +45,24 @@ exports.getQuizResults = async (req, res) => {
   }
 };
 
-exports.getMyQuizResult = async (req, res) => {
+exports.getMyassignmentResult = async (req, res) => {
   try {
-    const { quizId } = req.params;
+    const { assignmentId } = req.params;
     const { user } = req;
 
     if (user.role !== "STUDENT") {
       return res.status(403).json({ error: "Only students can view this" });
     }
 
-    const attempt = await prisma.quizAttempt.findUnique({
+    const attempt = await prisma.assignmentAttempt.findUnique({
       where: {
-        userId_quizId: {
+        userId_assignmentId: {
           userId: user.id,
-          quizId,
+          assignmentId,
         },
       },
       include: {
-        quiz: {
+        assignment: {
           include: { questions: true },
         },
       },
@@ -73,10 +73,10 @@ exports.getMyQuizResult = async (req, res) => {
     }
 
     res.json({
-      quiz: attempt.quiz.title,
+      assignment: attempt.assignment.title,
       score: attempt.score,
       answers: attempt.answers,
-      totalQuestions: attempt.quiz.questions.length,
+      totalQuestions: attempt.assignment.questions.length,
     });
   } catch (err) {
     console.error(err);
@@ -84,24 +84,24 @@ exports.getMyQuizResult = async (req, res) => {
   }
 };
 
-exports.getClassQuizResults = async (req, res) => {
+exports.getClassassignmentResults = async (req, res) => {
   try {
-    const { quizId, classId } = req.params;
+    const { assignmentId, classId } = req.params;
     const { user } = req;
 
     if (!["ADMIN", "TEACHER"].includes(user.role)) {
       return res.status(403).json({ error: "Unauthorized" });
     }
 
-    const quiz = await prisma.quiz.findUnique({ where: { id: quizId } });
+    const assignment = await prisma.assignment.findUnique({ where: { id: assignmentId } });
 
-    if (user.role === "TEACHER" && quiz.teacherId !== user.id) {
+    if (user.role === "TEACHER" && assignment.teacherId !== user.id) {
       return res.status(403).json({ error: "Unauthorized" });
     }
 
-    const results = await prisma.quizAttempt.findMany({
+    const results = await prisma.assignmentAttempt.findMany({
       where: {
-        quizId,
+        assignmentId,
         user: { classId },
       },
       include: {
@@ -111,7 +111,7 @@ exports.getClassQuizResults = async (req, res) => {
 
     res.json({
       classId,
-      quizId,
+      assignmentId,
       attempts: results.length,
       results,
     });
@@ -124,9 +124,9 @@ exports.getClassQuizResults = async (req, res) => {
 exports.gradeEssay = async (req, res) => {
   const { attemptId, marks } = req.body;
 
-  const attempt = await prisma.quizAttempt.findUnique({
+  const attempt = await prisma.assignmentAttempt.findUnique({
     where: { id: attemptId },
-    include: { quiz: true },
+    include: { assignment: true },
   });
 
   if (!attempt) return res.status(404).json({ error: "Attempt not found" });
@@ -138,9 +138,9 @@ exports.gradeEssay = async (req, res) => {
   });
 
   const percentage = (score / 100) * 100;
-  const passed = percentage >= attempt.quiz.passMark;
+  const passed = percentage >= attempt.assignment.passMark;
 
-  const updated = await prisma.quizAttempt.update({
+  const updated = await prisma.assignmentAttempt.update({
     where: { id: attemptId },
     data: {
       score,

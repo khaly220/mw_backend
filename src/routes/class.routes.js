@@ -4,71 +4,26 @@ const { checkRole } = require("../middleware/role.middleware");
 const classController = require("../controllers/class.controller");
 
 
+router.get("/", authenticate, classController.getClassesForUser);
 
-router.post(
-  "/:classId/assign-student",
-  authenticate,
-  checkRole(["ADMIN"]),
-  classController.assignStudent
-);
-
-// class.routes.js
-
-// Approve/reject a single request
-router.post(
-  "/request/:requestId",
-  authenticate,
-  checkRole(["ADMIN"]),
-  classController.updateSingleRequest
-);
+router.post("/", authenticate, checkRole(["ADMIN"]), classController.createClass);
 
 
-router.post(
-  "/:classId/request-assign",
-  authenticate,
-  checkRole(["TEACHER"]),
-  classController.requestAssignStudent
-);
+router.put("/:classId", authenticate, checkRole(["ADMIN"]), classController.updateClass);
+
+router.delete("/:classId", authenticate, checkRole(["ADMIN"]), classController.deleteClass);
 
 
-// Create class (ADMIN)
-router.post(
-  "/",
-  authenticate,
-  checkRole(["ADMIN"]),
-  classController.createClass
-);
-
-// Update class (ADMIN)
-router.put(
-  "/:id",
-  authenticate,
-  checkRole(["ADMIN"]),
-  classController.updateClass
-);
-
-// Delete class (ADMIN)
-router.delete(
-  "/:id",
-  authenticate,
-  checkRole(["ADMIN"]),
-  classController.deleteClass
-);
+router.post("/assign-student", authenticate, checkRole(["ADMIN"]), classController.assignStudent);
 
 
-router.post(
-  "/request",
-  authenticate,
-  checkRole(["TEACHER"]),
-  classController.requestClassAssignment
-);
+router.post("/request", authenticate, checkRole(["TEACHER"]), classController.requestClassAssignment);
 
-// Admin bulk approve/reject
-router.post(
-  "/request/bulk",
-  authenticate,
-  checkRole(["ADMIN"]),
-  classController.bulkUpdateRequests
-);
+router.patch("/request/:requestId", authenticate, checkRole(["ADMIN"]), classController.updateSingleRequest);
+
+
+router.patch("/request/bulk", authenticate, checkRole(["ADMIN"]), classController.bulkUpdateRequests);
+
+router.get("/teacher-classes", authenticate, checkRole(["TEACHER"]), classController.getTeacherClasses);
 
 module.exports = router;

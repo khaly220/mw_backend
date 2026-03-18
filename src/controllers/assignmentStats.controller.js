@@ -2,14 +2,14 @@ const { PrismaClient } = require("@prisma/client");
 const prisma = new PrismaClient();
 
 // ===============================
-// QUIZ OVERALL STATISTICS
+// assignment OVERALL STATISTICS
 // ===============================
-exports.getQuizStats = async (req, res) => {
+exports.getassignmentStats = async (req, res) => {
   try {
-    const { quizId } = req.params;
+    const { assignmentId } = req.params;
 
-    const attempts = await prisma.quizAttempt.findMany({
-      where: { quizId },
+    const attempts = await prisma.assignmentAttempt.findMany({
+      where: { assignmentId },
       include: { user: true },
     });
 
@@ -37,15 +37,15 @@ exports.getQuizStats = async (req, res) => {
 };
 
 // ===============================
-// CLASS QUIZ STATISTICS
+// CLASS assignment STATISTICS
 // ===============================
-exports.getClassQuizStats = async (req, res) => {
+exports.getClassassignmentStats = async (req, res) => {
   try {
-    const { quizId, classId } = req.params;
+    const { assignmentId, classId } = req.params;
 
-    const attempts = await prisma.quizAttempt.findMany({
+    const attempts = await prisma.assignmentAttempt.findMany({
       where: {
-        quizId,
+        assignmentId,
         user: { classId },
       },
       include: { user: true },
@@ -74,14 +74,14 @@ exports.getClassQuizStats = async (req, res) => {
 };
 
 // ===============================
-// QUIZ RANKING
+// assignment RANKING
 // ===============================
-exports.getQuizRanking = async (req, res) => {
+exports.getassignmentRanking = async (req, res) => {
   try {
-    const { quizId } = req.params;
+    const { assignmentId } = req.params;
 
-    const ranking = await prisma.quizAttempt.findMany({
-      where: { quizId },
+    const ranking = await prisma.assignmentAttempt.findMany({
+      where: { assignmentId },
       orderBy: { score: "desc" },
       include: {
         user: {

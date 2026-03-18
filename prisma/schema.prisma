@@ -14,15 +14,33 @@ datasource db {
 // ENUMS
 // ===================
 enum Role {
-  STUDENT
-  TEACHER
   ADMIN
+  TEACHER
+  STUDENT
+}
+
+enum ContentType {
+  LESSON
+  TOPIC
+  SUBTOPIC
+}
+
+enum UserStatus {
+  ACTIVE
+  INACTIVE
+  SUSPENDED
 }
 
 enum RequestStatus {
   PENDING
   APPROVED
   REJECTED
+}
+
+enum SessionStatus {
+  SCHEDULED
+  LIVE
+  ENDED
 }
 
 enum AnnouncementTargetType {
@@ -32,71 +50,277 @@ enum AnnouncementTargetType {
   USER
 }
 
+enum AttendanceStatus {
+  PRESENT
+  ABSENT
+  LATE
+}
+
 enum QuestionType {
   MCQ
   TRUE_FALSE
-  SHORT_ANSWER
+  TEXT
+}
+// ===================
+// CORE MODELS
+// ===================
+
+model School {
+  id        String   @id @default(uuid())
+  name      String   @unique
+  location  String?
+  createdAt DateTime @default(now())
+
+  users         User[]
+  classes       Class[]
+  courses       Course[]
+  announcements Announcement[]
 }
 
-// ===================
-// USER
-// ===================
 model User {
-  id       String @id @default(uuid())
+  id       String     @id @default(uuid())
   name     String
-  email    String @unique
+  email    String     @unique
   password String
   role     Role
+  status   UserStatus @default(ACTIVE)
 
-  classId String?
-  class   Class?  @relation(fields: [classId], references: [id])
+  schoolId String
+  school   School @relation(fields: [schoolId], references: [id])
 
-  studentRequests ClassAssignmentRequest[] @relation("StudentRequests")
-  teacherRequests ClassAssignmentRequest[] @relation("TeacherRequests")
+  assignedClassId String?
+  assignedClass   Class?  @relation("AssignedUsers", fields: [assignedClassId], references: [id])
+  studentClassId  String?
+  studentClass    Class?  @relation("StudentClass", fields: [studentClassId], references: [id])
+  teacherClassId  String?
+  teacherClass    Class?  @relation("TeacherClass", fields: [teacherClassId], references: [id])
+  mainClassId     String? @unique
+  mainClass       Class?  @relation("MainTeacher", fields: [mainClassId], references: [id])
 
-  courses        Course[]        @relation("TeacherCourses")
-  quizAttempts   QuizAttempt[]
-  announcements  Announcement[]  @relation("UserAnnouncements")
-  aiInteractions AIInteraction[]
+  studentRequests  ClassAssignmentRequest[] @relation("StudentRequests")
+  teacherRequests  ClassAssignmentRequest[] @relation("TeacherRequests")
 
-  createdAt   DateTime      @default(now())
-  ClassMember ClassMember[]
-  Quiz        Quiz[]
+  courses        Course[] @relation("TeacherCourses")
+  createdCourses Course[] @relation("CreatedCourses")
+
+  assignments         assignment[]
+  assignmentAttempts  assignmentAttempt[]
+
+  announcements    Announcement[] @relation("UserAnnouncements")
+  aiInteractions   AIInteraction[]
+  classMemberships ClassMember[]
+  liveSessions LiveSession[]
+
+  attendanceAsStudent Attendance[] @relation("StudentAttendance")
+  attendanceAsTeacher Attendance[] @relation("TeacherAttendance")
+  receivedNotifications Notification[] @relation("ReceivedNotifications")
+  
+
+  createdAt DateTime @default(now())
 }
 
-// ===================
-// CLASS
-// ===================
 model Class {
   id    String @id @default(uuid())
   name  String
   level String
   group String
 
-  students      User[]
-  members       ClassMember[]
-  courses       Course[]
-  classRequests ClassAssignmentRequest[]
+  schoolId String
+  school   School @relation(fields: [schoolId], references: [id])
 
-  announcements Announcement[]
+  assignedUsers User[] @relation("AssignedUsers")
+  students      User[] @relation("StudentClass")
+  teachers      User[] @relation("TeacherClass")
+  mainTeacher   User?  @relation("MainTeacher")
 
-  createdAt         DateTime            @default(now())
-  AnnouncementClass AnnouncementClass[]
-  QuizClass         QuizClass[]
+  memberships         ClassMember[]
+  courses             Course[]
+  classRequests       ClassAssignmentRequest[]
+  announcements       Announcement[]
+  assignmentClasses   assignmentClass[]
+  attendance          Attendance[]
+  announcementClasses AnnouncementClass[]
+  liveSessions LiveSession[]
+  createdAt DateTime @default(now())
 
-  @@unique([level, group])
+  @@unique([schoolId, level, group])
 }
 
 // ===================
-// CLASS ASSIGNMENTS
+// COURSE & CONTENT
 // ===================
-model ClassAssignmentRequest {
-  id        String        @id @default(uuid())
-  studentId String
-  classId   String
+
+model Course {
+  id          String @id @default(uuid())
+  title       String
+  description String @db.Text
+
+  classId     String
+  teacherId   String
+  schoolId    String
+  createdById String
+
+  class     Class  @relation(fields: [classId], references: [id])
+  teacher   User   @relation("TeacherCourses", fields: [teacherId], references: [id])
+  school    School @relation(fields: [schoolId], references: [id])
+  createdBy User   @relation("CreatedCourses", fields: [createdById], references: [id])
+
+  contents      CourseContent[]
+  announcements Announcement[]
+  assignments   assignment[]
+
+  createdAt DateTime @default(now())
+}
+
+model CourseContent {
+  id    String      @id @default(uuid())
+  title String
+  type  ContentType
+
+  notes        String?  @db.Text
+  videoUrl     String?
+  materialUrl  String?
+  reviewPoints String[]
+
+  parentId String?
+  parent   CourseContent?  @relation("ContentHierarchy", fields: [parentId], references: [id])
+  children CourseContent[] @relation("ContentHierarchy")
+
+  courseId String
+  course   Course @relation(fields: [courseId], references: [id])
+
+  assignments    assignment[]
+  aiInteractions AIInteraction[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
+// ===================
+// ASSIGNMENTS
+// ===================
+
+model assignment {
+  id              String   @id @default(uuid())
+  title           String
+  instruction     String?  @db.Text
+  duration        Int      @default(30)
+  passMark        Int      @default(50)
+  negativeMarking Float    @default(0)
+
   teacherId String
+  teacher   User @relation(fields: [teacherId], references: [id])
+
+  contentId String?
+  content   CourseContent? @relation(fields: [contentId], references: [id])
+
+  courseId String?
+  course   Course? @relation(fields: [courseId], references: [id])
+
+  assignmentClasses  assignmentClass[]
+  questions          Question[]
+  assignmentAttempts assignmentAttempt[]
+
+  createdAt DateTime @default(now())
+}
+
+model Question {
+  id           String       @id @default(uuid())
+  assignmentId String
+  assignment   assignment   @relation(fields: [assignmentId], references: [id], onDelete: Cascade)
+
+  prompt  String @db.Text
+  type    QuestionType
+  weight  Int    @default(5)
+
+  options Json?     // ✅ This works for MCQ options
+  answer  String?   // ✅ Will store correct answer (MCQ, TRUE_FALSE, TEXT)
+
+  submissionAnswers SubmissionAnswer[]
+}
+
+// ===================
+// ASSIGNMENT ATTEMPTS
+// ===================
+
+model assignmentAttempt {
+  id           String   @id @default(uuid())
+  userId       String
+  assignmentId String
+
+  user       User       @relation(fields: [userId], references: [id])
+  assignment assignment @relation(fields: [assignmentId], references: [id], onDelete: Cascade)
+
+  score     Float
+  passed    Boolean @default(false)
+  graded    Boolean @default(false)
+
+  answers Json  // ✅ This can store student answers as JSON array
+
+  submissionAnswers SubmissionAnswer[]
+
+  createdAt DateTime @default(now())
+
+  @@unique([userId, assignmentId])
+}
+
+model SubmissionAnswer {
+  id        String @id @default(uuid())
+
+  attemptId  String
+  questionId String
+
+  selectedAnswer String?  // ✅ student choice
+  correctAnswer  String?  // ✅ correct choice
+  isCorrect      Boolean  // ✅ mark true/false
+
+ 
+  attempt  assignmentAttempt @relation(fields: [attemptId], references: [id], onDelete: Cascade)
+  question Question          @relation(fields: [questionId], references: [id], onDelete: Cascade) 
+}
+
+// ===================
+// SUPPORT MODELS
+// ===================
+
+model Attendance {
+  id        String           @id @default(uuid())
+  studentId String
+  teacherId String
+  classId   String
+  date      DateTime
+  status    AttendanceStatus
+  createdAt DateTime @default(now())
+
+  student User  @relation("StudentAttendance", fields: [studentId], references: [id], onDelete: Cascade)
+  teacher User  @relation("TeacherAttendance", fields: [teacherId], references: [id])
+  class   Class @relation(fields: [classId], references: [id])
+
+  @@unique([studentId, classId, date], name: "student_class_date")
+}
+
+model AIInteraction {
+  id        String @id @default(uuid())
+  userId    String
+  type      String
+  messages  Json
+
+  contentId String?
+  content   CourseContent? @relation(fields: [contentId], references: [id])
+
+  user User @relation(fields: [userId], references: [id])
+
+  createdAt DateTime @default(now())
+}
+
+model ClassAssignmentRequest {
+  id        String @id @default(uuid())
+  studentId String
+  teacherId String
+  classId   String
   status    RequestStatus @default(PENDING)
-  createdAt DateTime      @default(now())
+
+  createdAt DateTime @default(now())
 
   student User  @relation("StudentRequests", fields: [studentId], references: [id])
   teacher User  @relation("TeacherRequests", fields: [teacherId], references: [id])
@@ -114,125 +338,40 @@ model ClassMember {
   @@unique([userId, classId])
 }
 
-// ===================
-// COURSES & LESSONS
-// ===================
-model Course {
-  id          String @id @default(uuid())
-  title       String
-  description String
-  classId     String
-  teacherId   String
+model assignmentClass {
+  id           String @id @default(uuid())
+  assignmentId String
+  classId      String
 
-  class   Class @relation(fields: [classId], references: [id])
-  teacher User  @relation("TeacherCourses", fields: [teacherId], references: [id])
+  assignment assignment @relation(fields: [assignmentId], references: [id], onDelete: Cascade)
+  class      Class      @relation(fields: [classId], references: [id])
 
-  lessons       Lesson[]
-  announcements Announcement[]
-
-  createdAt DateTime @default(now())
-}
-
-model Lesson {
-  id       String  @id @default(uuid())
-  title    String
-  content  String
-  videoUrl String?
-  courseId String
-
-  course         Course          @relation(fields: [courseId], references: [id])
-  quiz           Quiz?           @relation(fields: [quizId], references: [id])
-  aiContext      String? // AI chat or video tutor
-  aiInteractions AIInteraction[]
-
-  createdAt DateTime @default(now())
-  quizId    String?
-}
-
-model Quiz {
-  id          String   @id @default(uuid())
-  title       String
-  description String?
-  teacherId   String
-  createdAt   DateTime @default(now())
-
-  teacher   User        @relation(fields: [teacherId], references: [id])
-  classes   QuizClass[] // relation to assigned classes
-  questions Question[]
-
-  attempts QuizAttempt[]
-  Lesson   Lesson[]
-}
-
-model QuizClass {
-  id      String @id @default(uuid())
-  quizId  String
-  classId String
-
-  quiz  Quiz  @relation(fields: [quizId], references: [id])
-  class Class @relation(fields: [classId], references: [id])
-
-  @@unique([quizId, classId])
-}
-
-model Question {
-  id       String       @id @default(uuid())
-  quizId   String
-  type     QuestionType
-  question String
-  options  Json?
-  answer   String
-
-  quiz Quiz @relation(fields: [quizId], references: [id])
-}
-
-model QuizAttempt {
-  id      String @id @default(uuid())
-  userId  String
-  quizId  String
-  score   Int
-  answers Json
-
-  user User @relation(fields: [userId], references: [id])
-  quiz Quiz @relation(fields: [quizId], references: [id])
-
-  createdAt DateTime @default(now())
-
-  @@unique([userId, quizId])
+  @@unique([assignmentId, classId])
 }
 
 // ===================
-// AI INTERACTIONS
+// ANNOUNCEMENTS
 // ===================
-model AIInteraction {
-  id       String  @id @default(uuid())
-  userId   String
-  lessonId String?
-  type     String // CHAT or VIDEO
-  messages Json
-
-  user   User    @relation(fields: [userId], references: [id])
-  lesson Lesson? @relation(fields: [lessonId], references: [id])
-
-  createdAt DateTime @default(now())
-}
 
 model Announcement {
   id         String                 @id @default(uuid())
   title      String
-  content    String
+  content    String                 @db.Text
   targetType AnnouncementTargetType
 
+  schoolId String?
   classId  String?
   courseId String?
   userId   String?
 
+  school School? @relation(fields: [schoolId], references: [id])
   class  Class?  @relation(fields: [classId], references: [id])
   course Course? @relation(fields: [courseId], references: [id])
   user   User?   @relation("UserAnnouncements", fields: [userId], references: [id])
 
-  createdAt         DateTime            @default(now())
-  AnnouncementClass AnnouncementClass[]
+  announcementClasses AnnouncementClass[]
+
+  createdAt DateTime @default(now())
 }
 
 model AnnouncementClass {
@@ -245,3 +384,46 @@ model AnnouncementClass {
 
   @@unique([announcementId, classId])
 }
+
+
+
+model Notification {
+  id          String   @id @default(uuid())
+  recipientId String   // The user who receives the notification
+  senderId    String?  // The user who triggered the action
+  type        String   // 'NEW_TEST', 'MARKS_RELEASED', 'ATTENDANCE', 'NEW_COURSE'
+  title       String
+  message     String
+  link        String?  // Optional: URL to redirect the user (e.g., /courses/123)
+  isRead      Boolean  @default(false)
+  createdAt   DateTime @default(now())
+
+  recipient   User     @relation("ReceivedNotifications", fields: [recipientId], references: [id])
+}
+
+
+model LiveSession {
+  id           String        @id @default(uuid())
+  title        String
+  status       SessionStatus @default(SCHEDULED)
+  
+  // Relations
+  classId      String        // The specific group/section
+  class        Class         @relation(fields: [classId], references: [id])
+  
+  teacherId    String
+  teacher      User          @relation(fields: [teacherId], references: [id])
+  
+  // Timing & Data
+  scheduledAt  DateTime?
+  startedAt    DateTime?
+  endedAt      DateTime?
+  recordingUrl String?
+  
+  createdAt    DateTime      @default(now())
+  updatedAt    DateTime      @updatedAt
+
+  @@index([classId])
+  @@index([status])
+}
+

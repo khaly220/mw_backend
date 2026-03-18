@@ -1,0 +1,16 @@
+const { PrismaClient } = require('@prisma/client');
+
+const prisma = new PrismaClient();
+
+// Optional: handle graceful shutdown
+process.on('SIGINT', async () => {
+  await prisma.$disconnect();
+  process.exit();
+});
+
+process.on('SIGTERM', async () => {
+  await prisma.$disconnect();
+  process.exit();
+});
+
+module.exports = { prisma };

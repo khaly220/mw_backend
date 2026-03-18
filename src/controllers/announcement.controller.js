@@ -1,118 +1,241 @@
-const { PrismaClient } = require("@prisma/client");
+// src/controllers/announcement.controller.js
+const { PrismaClient, AnnouncementTargetType } = require('@prisma/client');
 const prisma = new PrismaClient();
 
-// Create announcement
-exports.createAnnouncement = async (req, res) => {
+const { createNotification } = require("../utilits/notification.helper");
+
+// ======================
+// GET ANNOUNCEMENTS
+// ======================
+const getAnnouncements = async (req, res) => {
+  const { user } = req;
+
   try {
-    const { title, content, classIds } = req.body;
-    const { user } = req;
+    let announcements = [];
 
-    if (!title || !content || !classIds || !Array.isArray(classIds)) {
-      return res.status(400).json({ error: "Title, content, and classIds are required" });
+    // ======================
+    // ADMIN → see only their school
+    // ======================
+    if (user.role === "ADMIN") {
+      announcements = await prisma.announcement.findMany({
+        where: { schoolId: user.schoolId },
+        orderBy: { createdAt: "desc" },
+      });
     }
 
-    // Teacher can only announce to assigned classes
-    if (user.role === "TEACHER") {
-      const allowedClassIds = (user.assignedClasses || []).map(c => c.id);
-      if (!classIds.every(id => allowedClassIds.includes(id))) {
-        return res.status(403).json({ error: "You can only announce to your assigned classes" });
-      }
+    // ======================
+    // TEACHER → school + classes they teach
+    // ======================
+    else if (user.role === "TEACHER") {
+      const teacherClasses = await prisma.class.findMany({
+        where: {
+          schoolId: user.schoolId,
+          teachers: { some: { id: user.id } },
+        },
+        select: { id: true },
+      });
+
+      const classIds = teacherClasses.map(c => c.id);
+
+      announcements = await prisma.announcement.findMany({
+        where: {
+          schoolId: user.schoolId,
+          OR: [
+            { classId: { in: classIds } },
+            { targetType: AnnouncementTargetType.SCHOOL },
+          ],
+        },
+        orderBy: { createdAt: "desc" },
+      });
     }
+
+    // ======================
+    // STUDENT → school + their class
+    // ======================
+    else if (user.role === "STUDENT") {
+      announcements = await prisma.announcement.findMany({
+        where: {
+          schoolId: user.schoolId,
+          OR: [
+            { classId: user.classId },
+            { targetType: AnnouncementTargetType.SCHOOL },
+          ],
+        },
+        orderBy: { createdAt: "desc" },
+      });
+    }
+
+    res.json(announcements);
+
+  } catch (err) {
+    console.error("GET ANNOUNCEMENTS ERROR:", err);
+    res.status(500).json({ message: "Failed to fetch announcements" });
+  }
+};
+
+// ======================
+// CREATE ANNOUNCEMENT
+// ======================
+const createAnnouncement = async (req, res) => {
+  const { user } = req;
+  const { title, content, classId } = req.body;
+
+  try {
+    // Teachers can only post to classes they teach
+    if (user.role === 'TEACHER' && classId && classId !== 'all') {
+      const assigned = await prisma.class.findFirst({
+        where: {
+          id: classId,
+          schoolId: user.schoolId,
+          teachers: { some: { id: user.id } },
+        },
+      });
+      if (!assigned) return res.status(403).json({ message: 'Cannot post to this class' });
+    }
+
+    const targetType = classId && classId !== 'all'
+      ? AnnouncementTargetType.CLASS
+      : AnnouncementTargetType.SCHOOL;
 
     const announcement = await prisma.announcement.create({
       data: {
         title,
         content,
-        creatorId: user.id,
-        targets: {
-          create: classIds.map(id => ({ classId: id })),
-        },
+        targetType,
+        classId: classId && classId !== 'all' ? classId : null,
+        userId: user.id,
+        schoolId: user.schoolId,
       },
-      include: { targets: true }
     });
 
-    res.status(201).json({ message: "Announcement created", announcement });
+    // =====================================================
+    // REAL-TIME NOTIFICATION LOGIC
+    // =====================================================
+    
+    // 1. Identify recipients based on Target Type
+    let recipients = [];
+    
+    if (targetType === AnnouncementTargetType.CLASS) {
+      // Notify all students in that specific class
+      recipients = await prisma.user.findMany({
+        where: { 
+          studentClassId: classId,
+          schoolId: user.schoolId 
+        },
+        select: { id: true }
+      });
+    } else {
+      // Notify EVERYONE in the school (except the sender)
+      recipients = await prisma.user.findMany({
+        where: { 
+          schoolId: user.schoolId,
+          id: { not: user.id } // Don't notify yourself
+        },
+        select: { id: true }
+      });
+    }
+
+    // 2. Loop and trigger real-time alerts
+    // We use Promise.all to ensure they start processing immediately
+    recipients.forEach(async (recipient) => {
+      try {
+        await createNotification(
+          recipient.id,
+          user.id,
+          "NEW_TEST", // You can use a specific type like 'ANNOUNCEMENT' if added to your Enum
+          "New Broadcast",
+          `${user.name} posted: ${title}`,
+          "/app/stuannouncements" // Link for students to view
+        );
+      } catch (err) {
+        console.error(`Failed to notify user ${recipient.id}:`, err);
+      }
+    });
+
+    res.status(201).json(announcement);
   } catch (err) {
-    console.error(err);
-    res.status(500).json({ error: "Server error" });
+    console.error('CREATE ANNOUNCEMENT ERROR:', err);
+    res.status(500).json({ message: 'Failed to create announcement' });
   }
 };
 
-// Get announcements
-exports.getAnnouncements = async (req, res) => {
-  try {
-    const { user } = req;
-    let where = {};
+// ======================
+// UPDATE ANNOUNCEMENT
+// ======================
+const updateAnnouncement = async (req, res) => {
+  const { user } = req;
+  const { id } = req.params;
+  const { title, content, classId } = req.body;
 
-    if (user.role === "TEACHER") {
-      const allowedClassIds = (user.assignedClasses || []).map(c => c.id);
-      where = { targets: { some: { classId: { in: allowedClassIds } } } };
-    } else if (user.role === "STUDENT") {
-      where = { targets: { some: { classId: user.classId } } };
+  try {
+    const announcement = await prisma.announcement.findUnique({ where: { id } });
+    if (!announcement) return res.status(404).json({ message: 'Announcement not found' });
+
+    // Only Admin or Author can update
+    if (user.role !== 'ADMIN' && announcement.userId !== user.id) {
+      return res.status(403).json({ message: 'Forbidden' });
     }
 
-    const announcements = await prisma.announcement.findMany({
-      where,
-      include: { targets: true, creator: true },
-      orderBy: { createdAt: "desc" }
-    });
-
-    res.json({ announcements });
-  } catch (err) {
-    console.error(err);
-    res.status(500).json({ error: "Server error" });
-  }
-};
-
-// Update announcement
-exports.updateAnnouncement = async (req, res) => {
-  try {
-    const { id } = req.params;
-    const { title, content } = req.body;
-    const { user } = req;
-
-    const announcement = await prisma.announcement.findUnique({
-      where: { id },
-      include: { targets: true }
-    });
-
-    if (!announcement) return res.status(404).json({ error: "Announcement not found" });
-
-    if (user.role === "TEACHER" && announcement.creatorId !== user.id) {
-      return res.status(403).json({ error: "You cannot update this announcement" });
+    // Teachers cannot assign announcements to classes they don't teach
+    if (user.role === 'TEACHER' && classId && classId !== 'all') {
+      const assigned = await prisma.class.findFirst({
+        where: {
+          id: classId,
+          schoolId: user.schoolId,
+          teachers: { some: { id: user.id } },
+        },
+      });
+      if (!assigned) return res.status(403).json({ message: 'Cannot assign to this class' });
     }
+
+    const targetType = classId && classId !== 'all'
+      ? AnnouncementTargetType.CLASS
+      : AnnouncementTargetType.SCHOOL;
 
     const updated = await prisma.announcement.update({
       where: { id },
-      data: { title, content },
-      include: { targets: true }
+      data: {
+        title,
+        content,
+        classId: classId && classId !== 'all' ? classId : null,
+        targetType,
+      },
     });
 
-    res.json({ message: "Announcement updated", updated });
+    res.json(updated);
   } catch (err) {
-    console.error(err);
-    res.status(500).json({ error: "Server error" });
+    console.error('UPDATE ANNOUNCEMENT ERROR:', err);
+    res.status(500).json({ message: 'Failed to update announcement' });
   }
 };
 
-// Delete announcement
-exports.deleteAnnouncement = async (req, res) => {
+// ======================
+// DELETE ANNOUNCEMENT
+// ======================
+const deleteAnnouncement = async (req, res) => {
+  const { user } = req;
+  const { id } = req.params;
+
   try {
-    const { id } = req.params;
-    const { user } = req;
-
     const announcement = await prisma.announcement.findUnique({ where: { id } });
-    if (!announcement) return res.status(404).json({ error: "Announcement not found" });
+    if (!announcement) return res.status(404).json({ message: 'Announcement not found' });
 
-    if (user.role === "TEACHER" && announcement.creatorId !== user.id) {
-      return res.status(403).json({ error: "You cannot delete this announcement" });
+    // Only Admin or Author can delete
+    if (user.role !== 'ADMIN' && announcement.userId !== user.id) {
+      return res.status(403).json({ message: 'Forbidden' });
     }
 
     await prisma.announcement.delete({ where: { id } });
-
-    res.json({ message: "Announcement deleted" });
+    res.json({ message: 'Announcement deleted' });
   } catch (err) {
-    console.error(err);
-    res.status(500).json({ error: "Server error" });
+    console.error('DELETE ANNOUNCEMENT ERROR:', err);
+    res.status(500).json({ message: 'Failed to delete announcement' });
   }
+};
+
+module.exports = {
+  getAnnouncements,
+  createAnnouncement,
+  updateAnnouncement,
+  deleteAnnouncement,
 };
