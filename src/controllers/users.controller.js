@@ -46,6 +46,7 @@ async function createUser(req, res) {
 
     // 4️⃣ Password
     const plainPassword = generatePassword(); // secure random password
+     console.log(plainPassword)
     const hashedPassword = await bcrypt.hash(plainPassword, 12);
 
     // 5️⃣ Class Logic
