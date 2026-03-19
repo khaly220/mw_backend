@@ -29,28 +29,25 @@ async function createUser(req, res) {
     if (!name || !email || !role) {
       return res.status(400).json({ message: "Required fields missing." });
     }
+
     const normalizedEmail = email.toLowerCase().trim();
 
-    if (!allowedRoles.includes(role)) {
-      return res.status(400).json({ message: "Invalid role." });
+    // 2️⃣ Duplicate check
+    const existingUser = await prisma.user.findUnique({
+      where: { email: normalizedEmail },
+    });
+
+    if (existingUser) {
+      return res.status(400).json({ message: "Email already registered." });
     }
 
-    // 2️⃣ Authorization
-    if (role === "ADMIN" && currentUser.role !== "ADMIN") {
-      return res.status(403).json({ message: "Unauthorized to create Admin accounts." });
-    }
-
-    // 3️⃣ Duplicate Check
-    const existingUser = await prisma.user.findUnique({ where: { email: normalizedEmail } });
-    if (existingUser) return res.status(400).json({ message: "Email already registered." });
-
-    // 4️⃣ Password
-    const plainPassword = generatePassword(); // secure random password
-     console.log(plainPassword)
+    // 3️⃣ Generate password
+    const plainPassword = generatePassword();
     const hashedPassword = await bcrypt.hash(plainPassword, 12);
 
-    // 5️⃣ Class Logic
+    // 4️⃣ Prepare data
     let finalClassId = studentClassId || classId;
+
     if (currentUser.role === "TEACHER" && role === "STUDENT") {
       finalClassId = finalClassId || currentUser.mainClassId;
     }
@@ -70,60 +67,64 @@ async function createUser(req, res) {
       else if (finalClassId) baseData.teacherClassId = finalClassId;
     }
 
-   // 6️⃣ Create User in DB
-const newUser = await prisma.user.create({
-  data: baseData,
-  select: { id: true, name: true, email: true, role: true },
-});
-
-// NEW: Proper notification logic for User Creation
-if (role === "STUDENT") {
-    // Notify the Admin that a student was created
-    const admin = await prisma.user.findFirst({
-        where: { schoolId: currentUser.schoolId, role: 'ADMIN' }
+    // 5️⃣ Save user
+    const newUser = await prisma.user.create({
+      data: baseData,
+      select: { id: true, name: true, email: true, role: true },
     });
 
-    if (admin) {
-        await createNotification(
-            admin.id,          // Recipient (Admin)
-            currentUser.id,    // Sender (Who created the user)
-            'STUDENT_ADDED',    // Type
-            'New Student Created',
-            `${name} has been successfully added to the system.`
-        );
-    }
+    // 6️⃣ Email template
+// 7️⃣ Email Template (clean + safer)
+const emailTemplate = `
+  <div style="font-family: 'Segoe UI', sans-serif; max-width: 600px; margin: auto; border: 1px solid #e2e8f0; border-radius: 16px; padding: 24px; background-color: #ffffff;">
+    
+    <h2 style="color: #1e293b; font-size: 22px; font-weight: 700;">
+      Welcome to MwarimuAi, ${name} 👋
+    </h2>
+
+    <p style="color: #475569; font-size: 15px;">
+      Your account has been successfully created.
+    </p>
+
+    <div style="background-color: #f8fafc; padding: 16px; border-radius: 10px; margin: 20px 0; border: 1px solid #e2e8f0;">
+      <p><strong>Email:</strong> ${normalizedEmail}</p>
+      <p>
+        <strong>Temporary Password:</strong><br/>
+        <span style="display:inline-block;background:#e2e8f0;padding:6px 10px;border-radius:6px;font-family:monospace;">
+          ${plainPassword}
+        </span>
+      </p>
+    </div>
+
+    <a href="${process.env.FRONTEND_URL}/login"
+       style="display:inline-block;background:#0f172a;color:#fff;padding:12px 24px;border-radius:6px;text-decoration:none;font-weight:600;">
+       Login to your account
+    </a>
+
+    <p style="font-size: 12px; color: #94a3b8; margin-top: 20px;">
+      Please change your password after your first login.
+    </p>
+  </div>
+`;
+
+
+// 8️⃣ Send Email (SAFE + RELIABLE)
+try {
+  await sendEmail(
+    normalizedEmail,
+    "Your MwarimuAi Account Details",
+    emailTemplate
+  );
+
+  console.log(`✅ Email sent to ${normalizedEmail}`);
+
+} catch (emailError) {
+  // ⚠️ DO NOT break user creation if email fails
+  console.error("❌ Email failed:", emailError.message);
+
+  // Optional: store failed email for retry later
+  // await prisma.failedEmail.create({...})
 }
-
-    // 7️⃣ Email Template
-    const emailTemplate = `
-      <div style="font-family: 'Segoe UI', sans-serif; max-width: 600px; margin: auto; border: 1px solid #e2e8f0; border-radius: 16px; padding: 24px; background-color: #ffffff;">
-        <h2 style="color: #1e293b; font-size: 24px; font-weight: 700; margin-bottom: 8px;">Welcome to MwarimuAi, ${name}!</h2>
-        <p style="color: #475569; font-size: 16px; margin-bottom: 20px;">Your account has been created by your school administrator.</p>
-        <div style="background-color: #f8fafc; padding: 20px; border-radius: 12px; margin-bottom: 24px; border: 1px solid #e2e8f0;">
-          <p style="margin: 4px 0; font-size: 15px;"><strong>Email:</strong> ${normalizedEmail}</p>
-          <p style="margin: 4px 0; font-size: 15px;"><strong>Temporary Password:</strong> <code style="background: #e2e8f0; padding: 2px 6px; border-radius: 4px; font-size: 14px;">${plainPassword}</code></p>
-        </div>
-        <a href="${process.env.FRONTEND_URL}/login" style="display: inline-block; background-color: #0f172a; color: #ffffff; padding: 14px 28px; border-radius: 8px; text-decoration: none; font-weight: 600; font-size: 16px; text-align: center;">Login Now</a>
-        <p style="font-size: 12px; color: #94a3b8; margin-top: 24px; line-height: 1.4;">For security, please change your password immediately after logging in. If you did not request this email, please ignore it.</p>
-      </div>
-    `;
-
-    // 8️⃣ Send Email (non-blocking but logged)
-    sendEmail(normalizedEmail, "Your MwarimuAi Account Details", emailTemplate)
-      .then(() => console.log(`Email sent to ${normalizedEmail}`))
-      .catch(err => console.error("Failed to send email:", err));
-
-    // 9️⃣ Response
-    return res.status(201).json({
-      success: true,
-      message: "User created and invitation sent.",
-      user: newUser,
-    });
-
-  } catch (error) {
-    console.error("CREATE USER ERROR:", error);
-    return res.status(500).json({ message: "Internal Server Error" });
-  }
 }
 
 
