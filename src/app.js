@@ -2,8 +2,9 @@ const express = require("express");
 const cors = require("cors");
 const http = require("http");
 const { Server } = require("socket.io");
-const jwt = require("jsonwebtoken");
-const prisma = require("./prisma"); // adjust path
+const jwt = require("jsonwebtoken");// src/controllers/assignment.controllers.js
+const { PrismaClient } = require("@prisma/client");
+const prisma = new PrismaClient();
 
 // ROUTES
 const authRoutes = require("./routes/auth.routes");
