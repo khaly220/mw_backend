@@ -20,6 +20,7 @@ function sanitizeUser(user) {
 /* =========================
    CREATE USER
 ========================= */
+
 async function createUser(req, res) {
   try {
     const { name, email, role, classId, studentClassId, isMainTeacher } = req.body;
@@ -32,7 +33,16 @@ async function createUser(req, res) {
 
     const normalizedEmail = email.toLowerCase().trim();
 
-    // 2️⃣ Duplicate check
+    if (!allowedRoles.includes(role)) {
+      return res.status(400).json({ message: "Invalid role." });
+    }
+
+    // 2️⃣ Authorization
+    if (role === "ADMIN" && currentUser.role !== "ADMIN") {
+      return res.status(403).json({ message: "Unauthorized to create Admin accounts." });
+    }
+
+    // 3️⃣ Duplicate Check
     const existingUser = await prisma.user.findUnique({
       where: { email: normalizedEmail },
     });
@@ -41,11 +51,11 @@ async function createUser(req, res) {
       return res.status(400).json({ message: "Email already registered." });
     }
 
-    // 3️⃣ Generate password
+    // 4️⃣ Password
     const plainPassword = generatePassword();
     const hashedPassword = await bcrypt.hash(plainPassword, 12);
 
-    // 4️⃣ Prepare data
+    // 5️⃣ Class Logic
     let finalClassId = studentClassId || classId;
 
     if (currentUser.role === "TEACHER" && role === "STUDENT") {
@@ -62,69 +72,95 @@ async function createUser(req, res) {
     };
 
     if (role === "STUDENT") baseData.studentClassId = finalClassId || null;
+
     if (role === "TEACHER") {
       if (isMainTeacher) baseData.mainClassId = finalClassId || null;
       else if (finalClassId) baseData.teacherClassId = finalClassId;
     }
 
-    // 5️⃣ Save user
+    // 6️⃣ Create User
     const newUser = await prisma.user.create({
       data: baseData,
       select: { id: true, name: true, email: true, role: true },
     });
 
-    // 6️⃣ Email template
-// 7️⃣ Email Template (clean + safer)
-const emailTemplate = `
-  <div style="font-family: 'Segoe UI', sans-serif; max-width: 600px; margin: auto; border: 1px solid #e2e8f0; border-radius: 16px; padding: 24px; background-color: #ffffff;">
-    
-    <h2 style="color: #1e293b; font-size: 22px; font-weight: 700;">
-      Welcome to MwarimuAi, ${name} 👋
-    </h2>
+    // 7️⃣ Email Template
+    const emailTemplate = `
+      <div style="font-family: 'Segoe UI', sans-serif; max-width: 600px; margin: auto; border: 1px solid #e2e8f0; border-radius: 16px; padding: 24px; background-color: #ffffff;">
+        
+        <h2 style="color: #1e293b; font-size: 22px; font-weight: 700;">
+          Welcome to MwarimuAi, ${name} 👋
+        </h2>
 
-    <p style="color: #475569; font-size: 15px;">
-      Your account has been successfully created.
-    </p>
+        <p style="color: #475569; font-size: 15px;">
+          Your account has been successfully created.
+        </p>
 
-    <div style="background-color: #f8fafc; padding: 16px; border-radius: 10px; margin: 20px 0; border: 1px solid #e2e8f0;">
-      <p><strong>Email:</strong> ${normalizedEmail}</p>
-      <p>
-        <strong>Temporary Password:</strong><br/>
-        <span style="display:inline-block;background:#e2e8f0;padding:6px 10px;border-radius:6px;font-family:monospace;">
-          ${plainPassword}
-        </span>
-      </p>
-    </div>
+        <div style="background-color: #f8fafc; padding: 16px; border-radius: 10px; margin: 20px 0; border: 1px solid #e2e8f0;">
+          <p><strong>Email:</strong> ${normalizedEmail}</p>
+          <p>
+            <strong>Temporary Password:</strong><br/>
+            <span style="display:inline-block;background:#e2e8f0;padding:6px 10px;border-radius:6px;font-family:monospace;">
+              ${plainPassword}
+            </span>
+          </p>
+        </div>
 
-    <a href="${process.env.FRONTEND_URL}/login"
-       style="display:inline-block;background:#0f172a;color:#fff;padding:12px 24px;border-radius:6px;text-decoration:none;font-weight:600;">
-       Login to your account
-    </a>
+        <a href="${process.env.FRONTEND_URL}/login"
+          style="display:inline-block;background:#0f172a;color:#fff;padding:12px 24px;border-radius:6px;text-decoration:none;font-weight:600;">
+          Login to your account
+        </a>
 
-    <p style="font-size: 12px; color: #94a3b8; margin-top: 20px;">
-      Please change your password after your first login.
-    </p>
-  </div>
-`;
+        <p style="font-size: 12px; color: #94a3b8; margin-top: 20px;">
+          Please change your password after your first login.
+        </p>
+      </div>
+    `;
 
+    // 8️⃣ Send Email (SAFE)
+    let emailSent = true;
 
-// 8️⃣ Send Email (SAFE + RELIABLE)
-try {
-  await sendEmail(
-    normalizedEmail,
-    "Your MwarimuAi Account Details",
-    emailTemplate
-  );
+    try {
+      await sendEmail(
+        normalizedEmail,
+        "Your MwarimuAi Account Details",
+        emailTemplate
+      );
 
-  console.log(`✅ Email sent to ${normalizedEmail}`);
+      console.log(`✅ Email sent to ${normalizedEmail}`);
+    } catch (error) {
+      emailSent = false;
+      console.error("❌ Email failed:", error.message);
 
-} catch (emailError) {
-  // ⚠️ DO NOT break user creation if email fails
-  console.error("❌ Email failed:", emailError.message);
+      // OPTIONAL: Save failed email for retry later
+      /*
+      await prisma.failedEmail.create({
+        data: {
+          to: normalizedEmail,
+          subject: "Your MwarimuAi Account Details",
+          body: emailTemplate,
+        },
+      });
+      */
+    }
 
-  // Optional: store failed email for retry later
-  // await prisma.failedEmail.create({...})
-}
+    // 9️⃣ Response (ALWAYS RETURN)
+    return res.status(201).json({
+      success: true,
+      message: emailSent
+        ? "User created and email sent."
+        : "User created but email failed.",
+      user: newUser,
+    });
+
+  } catch (error) {
+    console.error("CREATE USER ERROR:", error);
+
+    return res.status(500).json({
+      message: "Internal Server Error",
+      error: error.message,
+    });
+  }
 }
 
 
